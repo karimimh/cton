@@ -54,3 +54,25 @@ def find_latest_divergence(symbol: str, timeframe: str, closes: Sequence[float],
             if sig is None or bearish.candle_index > sig.candle_index:
                 sig = bearish
     return sig
+
+
+def find_divergences(symbol: str, timeframe: str, closes: Sequence[float], rsi_values: Sequence[float], k: int = 2) -> List[DivergenceSignal]:
+    """Return all detected divergences in chronological order.
+
+    A divergence is formed by two consecutive swings of same kind (two lows for bullish, two highs for bearish)
+    satisfying the usual price/RSI opposite direction criteria.
+    """
+    swings = detect_swings(closes, rsi_values, k=k)
+    lows = [s for s in swings if s.kind == 'low']
+    highs = [s for s in swings if s.kind == 'high']
+    signals: List[DivergenceSignal] = []
+    for i in range(1, len(lows)):
+        prev_low, last_low = lows[i-1], lows[i]
+        if last_low.price < prev_low.price and last_low.rsi > prev_low.rsi:
+            signals.append(DivergenceSignal('bullish', symbol, timeframe, prev_low.price, last_low.price, prev_low.rsi, last_low.rsi, last_low.index))
+    for i in range(1, len(highs)):
+        prev_high, last_high = highs[i-1], highs[i]
+        if last_high.price > prev_high.price and last_high.rsi < prev_high.rsi:
+            signals.append(DivergenceSignal('bearish', symbol, timeframe, prev_high.price, last_high.price, prev_high.rsi, last_high.rsi, last_high.index))
+    signals.sort(key=lambda s: s.candle_index)
+    return signals
