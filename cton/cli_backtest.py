@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 from .binance_client import BinanceClient
-from .backtest import backtest_symbols
+from .backtest import portfolio_backtest
 
 
 def parse_args():
@@ -14,40 +14,48 @@ def parse_args():
     p.add_argument('--swing-k', type=int, default=2)
     p.add_argument('--stop-pct', type=float, default=5.0)
     p.add_argument('--target-pct', type=float, default=10.0)
+    p.add_argument('--initial-capital', type=float, default=1000.0)
+    p.add_argument('--alloc-frac', type=float, default=0.25, help='Fraction of current capital per new trade (e.g. 0.25)')
+    p.add_argument('--max-open', type=int, default=4)
+    p.add_argument('--max-hold-candles', type=int, default=30, help='Max candles to hold a position before timeout exit')
     return p.parse_args()
 
 
 def main():  # pragma: no cover
     args = parse_args()
     client = BinanceClient()
+    print("Fetching exchangeInfo...")
     symbols = client.fetch_symbols_usdc(limit=args.limit_symbols)
+    print(f"Fetched {len(symbols)} symbols with USDC quote.")
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=args.days)
-    results = backtest_symbols(client, symbols, args.timeframe, int(start.timestamp()*1000), int(end.timestamp()*1000),
-                               rsi_period=args.rsi_period, swing_k=args.swing_k,
-                               stop_pct=args.stop_pct, target_pct=args.target_pct)
-    # Print summary
-    print(f"Backtest timeframe={args.timeframe} period={args.rsi_period} swing_k={args.swing_k} stop={args.stop_pct}% target={args.target_pct}%")
-    aggregate_net = 0.0
-    aggregate_closed = 0
-    aggregate_wins = 0
-    aggregate_trades = 0
-    for sym, data in results.items():
-        if 'error' in data:
-            print(f"{sym}: ERROR {data['error']}")
-            continue
-        summary = data['summary']
-        aggregate_net += summary['net_pct']
-        aggregate_closed += summary['closed_trades']
-        aggregate_wins += summary['wins']
-        aggregate_trades += summary['total_trades']
-        print(f"{sym}: trades={summary['total_trades']} closed={summary['closed_trades']} win_rate={summary['win_rate']:.1f}% net_pct={summary['net_pct']:.2f}")
-    if aggregate_closed:
-        overall_wr = aggregate_wins / aggregate_closed * 100
-    else:
-        overall_wr = 0.0
+    results = portfolio_backtest(
+        client,
+        symbols,
+        args.timeframe,
+        int(start.timestamp()*1000),
+        int(end.timestamp()*1000),
+        initial_capital=args.initial_capital,
+        capital_fraction_per_trade=args.alloc_frac,
+        max_open_trades=args.max_open,
+        rsi_period=args.rsi_period,
+        swing_k=args.swing_k,
+        stop_pct=args.stop_pct,
+        target_pct=args.target_pct,
+        max_hold_candles=args.max_hold_candles,
+    )
+    print(f"Portfolio Backtest timeframe={args.timeframe} capital={args.initial_capital} alloc_frac={args.alloc_frac} max_open={args.max_open}")
+    print(f"Symbols tested: {results['symbols_tested']} Divergence candidates: {results['candidates']} Executed trades: {results['executed']}")
+    print("Trades (chronological):")
+    header = f"{'Symbol':<12} {'Dir':<5} {'EntryTime':<13} {'ExitTime':<13} {'Entry':>10} {'Exit':>10} {'Result':<8} {'Hold':>5} {'Alloc$':>10} {'PnL$':>10} {'PnL%':>7}"
+    print(header)
+    print('-'*len(header))
+    for t in results['trades']:
+        pnl_val = t.pnl_value()
+        pnl_pct = t.pnl_pct_on_alloc()
+        print(f"{t.symbol:<12} {t.direction:<5} {t.entry_time:<13} {t.exit_time:<13} {t.entry_price:>10.5f} {t.exit_price:>10.5f} {t.result:<8} {t.holding_candles():>5} {t.capital_alloc:>10.2f} {pnl_val:>10.2f} {pnl_pct:>7.2f}")
     print("----")
-    print(f"TOTAL symbols={len(results)} trades={aggregate_trades} closed={aggregate_closed} overall_win_rate={overall_wr:.1f}% aggregate_net_pct={aggregate_net:.2f}")
+    print(f"Final Capital: {results['final_capital']:.2f}  Return: {results['return_pct']:.2f}%")
 
 
 if __name__ == '__main__':  # pragma: no cover
