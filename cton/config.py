@@ -1,7 +1,11 @@
 from __future__ import annotations
 import os
 from dataclasses import dataclass
-from dotenv import load_dotenv
+try:  # pragma: no cover - optional dependency guard
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # noqa: BLE001
+    def load_dotenv():  # type: ignore
+        return False
 
 load_dotenv()
 
@@ -22,6 +26,17 @@ class Config:
     request_timeout: int = 10
     max_candles_fetch: int = 500
     timeframes: tuple[str, ...] = ("1M", "1w", "1d", "4h")
+    # Trading (live/paper) parameters
+    trade_timeframe: str = "4h"
+    initial_capital: float = 1000.0  # only used for paper mode capital tracking
+    allocation_fraction: float = 0.25
+    max_open_trades: int = 4
+    stop_pct: float = 5.0
+    target_pct: float = 10.0
+    max_hold_candles: int = 30
+    allow_shorts: bool = False  # spot trading cannot short without margin
+    api_key: str | None = None
+    api_secret: str | None = None
 
     @staticmethod
     def load() -> "Config":
@@ -46,4 +61,14 @@ class Config:
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "10")),
             max_candles_fetch=int(os.getenv("MAX_CANDLES_FETCH", "500")),
             timeframes=tuple(os.getenv("TIMEFRAMES", "1M,1w,1d,4h").split(",")),
+            trade_timeframe=os.getenv("TRADE_TIMEFRAME", "4h"),
+            initial_capital=float(os.getenv("INITIAL_CAPITAL", "1000")),
+            allocation_fraction=float(os.getenv("ALLOCATION_FRACTION", "0.25")),
+            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "4")),
+            stop_pct=float(os.getenv("STOP_PCT", "5")),
+            target_pct=float(os.getenv("TARGET_PCT", "10")),
+            max_hold_candles=int(os.getenv("MAX_HOLD_CANDLES", "30")),
+            allow_shorts=os.getenv("ALLOW_SHORTS", "false").lower() == "true",
+            api_key=os.getenv("BINANCE_API_KEY"),
+            api_secret=os.getenv("BINANCE_API_SECRET"),
         )
