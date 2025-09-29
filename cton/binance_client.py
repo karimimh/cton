@@ -15,23 +15,41 @@ class BinanceClient:
         self.api_secret = api_secret
         self.sandbox = sandbox
 
-    def _get(self, path: str, params: dict[str, Any] | None = None, signed: bool = False) -> Any:
+    def _sign_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.api_key or not self.api_secret:
+            raise ValueError("Signed endpoint requires API key/secret")
+        params = dict(params)
+        params['timestamp'] = int(time.time() * 1000)
+        qs = urllib.parse.urlencode(params, doseq=True)
+        signature = hmac.new(self.api_secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
+        params['signature'] = signature
+        return params
+
+    def _request(self, method: str, path: str, params: dict[str, Any] | None = None, signed: bool = False) -> Any:
         url = f"{BASE_URL}{path}"
         headers = {}
+        data = None
         if signed:
-            if not self.api_key or not self.api_secret:
-                raise ValueError("Signed endpoint requires API key/secret")
-            query = params or {}
-            query['timestamp'] = int(time.time()*1000)
-            qs = urllib.parse.urlencode(query, doseq=True)
-            signature = hmac.new(self.api_secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
-            qs += f"&signature={signature}"
-            url = f"{url}?{qs}"
-            params = None  # embedded in url
-            headers['X-MBX-APIKEY'] = self.api_key
-        r = requests.get(url, params=params, timeout=self.timeout, headers=headers)
-        r.raise_for_status()
+            params = self._sign_params(params or {})
+            headers['X-MBX-APIKEY'] = self.api_key  # type: ignore[arg-type]
+        if method == 'GET':
+            r = requests.get(url, params=params, timeout=self.timeout, headers=headers)
+        else:
+            # For POST signed endpoints Binance expects application/x-www-form-urlencoded
+            r = requests.post(url, data=params, timeout=self.timeout, headers=headers)
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as e:  # noqa: BLE001
+            # Attempt to extract error body
+            try:
+                err_json = r.json()
+            except Exception:  # noqa: BLE001
+                err_json = {'body': r.text}
+            raise RuntimeError(f"Binance API error {r.status_code}: {err_json}") from e
         return r.json()
+
+    def _get(self, path: str, params: dict[str, Any] | None = None, signed: bool = False) -> Any:
+        return self._request('GET', path, params=params, signed=signed)
 
     def fetch_symbols_usdc(self, limit: int | None = None) -> list[str]:
         data = self._get("/api/v3/exchangeInfo")
@@ -95,7 +113,7 @@ class BinanceClient:
             'type': 'MARKET',
             'quantity': self._format_quantity(quantity),
         }
-        return self._get('/api/v3/order', params=params, signed=True)
+        return self._request('POST', '/api/v3/order', params=params, signed=True)
 
     def _format_quantity(self, qty: float) -> str:
         # Simplistic formatting; in production we would query exchangeInfo for lot size filters

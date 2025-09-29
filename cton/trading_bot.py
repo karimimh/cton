@@ -7,6 +7,8 @@ from .binance_client import BinanceClient
 from .indicators import rsi
 from .divergence import find_latest_divergence
 from .notifier.email_notifier import send_email
+import hashlib
+import json
 
 
 @dataclass
@@ -29,6 +31,7 @@ class TradingBot:
         self.capital = cfg.initial_capital
         self.open_positions = {}  # type: Dict[str, OpenPosition]
         self.realized_pnl = 0.0
+        self._last_email_hash = None  # last sent email state hash
 
     def fetch_symbols(self) -> List[str]:
         return self.client.fetch_symbols_usdc(limit=self.cfg.symbol_limit)
@@ -110,6 +113,27 @@ class TradingBot:
                        exit_price: float | None, pnl: float | None, reason: str | None):
         try:
             subject, body = self._build_email(action, symbol, direction, entry_price, quantity, exit_price, pnl, reason)
+            # Throttle: compute hash; if unchanged skip unless action is CLOSE (always important)
+            state_repr = {
+                'action': action,
+                'symbol': symbol,
+                'direction': direction,
+                'entry_price': entry_price,
+                'quantity': quantity,
+                'exit_price': exit_price,
+                'pnl': pnl,
+                'reason': reason,
+                'open_positions': [
+                    {'s': p.symbol, 'dir': p.direction, 'e': p.entry_price, 'q': p.quantity, 'st': p.stop_price, 'tg': p.target_price}
+                    for p in sorted(self.open_positions.values(), key=lambda x: x.symbol)
+                ],
+                'realized': self.realized_pnl,
+                'capital': self.capital,
+            }
+            digest = hashlib.sha256(json.dumps(state_repr, sort_keys=True).encode()).hexdigest()
+            if action == 'OPEN' and self._last_email_hash == digest:
+                return  # suppress duplicate opens with identical state
+            self._last_email_hash = digest
             send_email(self.cfg.smtp_host, self.cfg.smtp_port, self.cfg.smtp_user, self.cfg.smtp_pass, self.cfg.starttls,
                        self.cfg.email_from, self.cfg.email_to, subject, body)
         except Exception as e:  # noqa: BLE001

@@ -188,6 +188,7 @@ def portfolio_backtest(client, symbols: Sequence[str], timeframe: str, start_ms:
     candidate_trades: List[Dict[str, Any]] = []
 
     for sym in symbols:
+        print(f"Processing symbol {sym}...")
         try:
             kl = client.fetch_klines_range(sym, timeframe, start_ms, end_ms)
             if len(kl) < rsi_period + 10:
