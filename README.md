@@ -211,3 +211,7 @@ This is a working prototype: the scanner, the backtester, and the paper-mode bot
 - More confirmation signals (MACD/OBV divergence, trend and volume filters)
 - Telegram or Slack notifiers
 - Dockerfile and CI (lint + tests)
+
+## License
+
+Released under the [MIT License](LICENSE).
