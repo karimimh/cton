@@ -202,7 +202,6 @@ This is a working prototype: the scanner, the backtester, and the paper-mode bot
   - The last kline Binance returns is the candle that is still forming.
   - A swing is only confirmed once `k` later candles exist, but the backtester enters on the candle right after the swing. Backtest results therefore include look-ahead bias, and they also assume limit fills with no fees or slippage.
 - **Networking.** Requests run one at a time, with no retry/backoff or rate-limit handling.
-- **Tests.** The RSI tests pass. The two divergence tests use synthetic series that do not form the swing pattern they assert, and currently fail.
 
 ## Roadmap
 
